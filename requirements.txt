@@ -1,0 +1,2 @@
+pysam==0.15.3
+sortedcontainers==2.1.0

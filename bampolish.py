@@ -15,12 +15,22 @@ def main():
     parser.add_argument("-v", "--verbose", action='store_true',
                         help="Verbose output", default=False)
     parser.add_argument("-w", "--window",
-                        help="Preffered window size to calculate average coverage for", default=1000, type=int)
+                        help="Desired window size to calculate average coverage for", default=1000, type=int)
     parser.add_argument("-c", "--coverage",
                         help="Desired coverage limit for sequence for read", default=10, type=int)
 
     args = parser.parse_args()
-    coverage(args.input, args.output, args.coverage)
+
+    # Reading in of sam/bam file
+    file_ext = args.input.split('.')[-1]
+
+    if file_ext != 'sam' and file_ext != 'bam':
+        # Early exit if wrong file type provided
+        sys.stderr.write("ERROR: Provided file is not of sam or bam type\n")
+        exit()
+    else:
+        # Perform operations
+        coverage(args.input, args.output, args.coverage)
 
 #This method is greedy but reads in low coverage areas may be missed if the current set is full
 #In future, windowing with a method to approach some average rather than a strict cutoff should be used
@@ -28,13 +38,13 @@ def coverage(inName, outName, maxCoverage):
     inFile = pysam.AlignmentFile(inName, "rb")
     outFile = pysam.AlignmentFile(outName, "wb", template=inFile)
 
-    curr = SortedSet() 
+    curr = SortedSet()
     mapped = 0
     filtered = 0
     for r in inFile.fetch(until_eof=True):
         if(r.is_unmapped): continue
         mapped += 1
-        
+
         #Attempt to find read that ends before this one
         itr = curr.irange(maximum=r.reference_start)
         try:
@@ -53,8 +63,8 @@ def coverage(inName, outName, maxCoverage):
                 filtered += 1
 
     outFile.close()
+    inFile.close()
     print("Reduced BAM from " + str(mapped) + " to " + str(filtered) + " reads")
 
 if __name__ == '__main__':
     main()
-
