@@ -11,50 +11,48 @@ def main():
     parser.add_argument("-i", "--input",
                         help="Input sam or bam filename")
     parser.add_argument("-o", "--output",
-                        help="Output sam, bam or bed filename")
+                        help="Output sam, bam or bed filename", default="output.bam")
     parser.add_argument("-v", "--verbose", action='store_true',
                         help="Verbose output", default=False)
     parser.add_argument("-w", "--window",
-                        help="Preffered window size to calculate average coverage for", default=1000)
+                        help="Preffered window size to calculate average coverage for", default=1000, type=int)
     parser.add_argument("-c", "--coverage",
-                        help="Desired coverage limit for sequence for read", default=10)
+                        help="Desired coverage limit for sequence for read", default=10, type=int)
 
     args = parser.parse_args()
     coverage(args.input, args.output, args.coverage)
 
-#TODO obtain overall window average rather than strictly cut
-def coverage(inputBam, outputBam, maxCoverage):
-    #Maintains a set of up to maxCoverage read end points
-    curr = SortedSet() 
+#This method is greedy but reads in low coverage areas may be missed if the current set is full
+#In future, windowing with a method to approach some average rather than a strict cutoff should be used
+def coverage(inName, outName, maxCoverage):
+    inFile = pysam.AlignmentFile(inName, "rb")
+    outFile = pysam.AlignmentFile(outName, "wb", template=inFile)
 
-    #Iterate over mapped reads
-    bf = pysam.AlignmentFile(inputBam, "rb")
-    
+    curr = SortedSet() 
     mapped = 0
     filtered = 0
-    for r in bf.fetch(until_eof=True):
+    for r in inFile.fetch(until_eof=True):
         if(r.is_unmapped): continue
         mapped += 1
-
-        #Attempt to find a current read that ends before this read starts
+        
+        #Attempt to find read that ends before this one
         itr = curr.irange(maximum=r.reference_start)
-
         try:
             ending = itr.__next__()
+
+            #Some read is ending, replace it in the current set
             curr.discard(ending)
             curr.add(r.reference_end)
+            outFile.write(r)
             filtered += 1
-            
-            #TODO Write this read to memory
-
         except StopIteration:
-            #Add read to attempt to meet coverage
             if(len(curr) < maxCoverage):
+                #There is still room to include this read
                 curr.add(r.reference_end)
+                outFile.write(r)
                 filtered += 1
 
-    #TODO Write all reads still in curr to memory
-
+    outFile.close()
     print("Reduced BAM from " + str(mapped) + " to " + str(filtered) + " reads")
 
 if __name__ == '__main__':
