@@ -106,3 +106,4 @@ venv.bak/
 # Test data
 nanopore/
 .DS_Store
+test_data/

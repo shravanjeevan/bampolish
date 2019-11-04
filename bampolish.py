@@ -29,14 +29,18 @@ def main():
         sys.stderr.write("ERROR: Provided file is not of sam or bam type\n")
         exit()
     else:
+        # Read in files
+        inFile = pysam.AlignmentFile(args.input, "r") # Autodetect SAM/BAM
+        outFile = pysam.AlignmentFile(args.output, "wb", template=inFile) # Default out as BAM (need to change later)
+
         # Perform operations
-        coverage(args.input, args.output, args.coverage)
+        #coverage(inFile, outFile, args.coverage)
+        calculate_average_coverage_windows(inFile, args.window)
 
 #This method is greedy but reads in low coverage areas may be missed if the current set is full
 #In future, windowing with a method to approach some average rather than a strict cutoff should be used
-def coverage(inName, outName, maxCoverage):
-    inFile = pysam.AlignmentFile(inName, "rb")
-    outFile = pysam.AlignmentFile(outName, "wb", template=inFile)
+def coverage(inFile, ouFile, maxCoverage):
+
 
     curr = SortedSet()
     mapped = 0
@@ -65,6 +69,33 @@ def coverage(inName, outName, maxCoverage):
     outFile.close()
     inFile.close()
     print("Reduced BAM from " + str(mapped) + " to " + str(filtered) + " reads")
+
+def calculate_average_coverage_windows(inFile, windowSize):
+
+    # Build dictionary of references
+    ref_dic = {}
+    for r, l in zip(*[inFile.references, inFile.lengths]):
+        ref_dic[r] = l
+
+    for references, lengths in ref_dic.items():
+        start = 0
+        end = windowSize
+
+        for window in range(lengths):
+            count = 0
+            total = 0
+            windowCount = 0
+            for pileupcolumn in inFile.pileup(references, start, end):
+                count += pileupcolumn.n
+
+            print("The average coverage in window " + str(start) + " - " + str(end) + " is " + str(count))
+            total += count
+            start = end + 1
+            end = start + 1000
+            windowCount += 1
+            average = total/windowCount
+            print("The average coverage for the file is " + str(average))
+
 
 if __name__ == '__main__':
     main()
