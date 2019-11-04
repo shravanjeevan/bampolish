@@ -7,25 +7,31 @@ from sortedcontainers import SortedSet
 
 inFile = pysam.AlignmentFile(inName, "rb")
 
-start = 0
-end = 100
+ref_dic = {}
+for r, l in zip(*[inFile.references, inFile.lengths]):
+    ref_dic[r] = l
 
-for window in range(pysam.AlignmentFile.reference_lengths)
+for references, lengths in ref_dic.items:
 
-	for pileupcolumn in samfile.pileup("chr1", star, end):
-		count+=pileupcolumn.n	
+	start = 0
+	end = 1000
 
-	print("The average coverage in window" + start + "-"+ end + "is"+count)
+	for window in range(lengths):
 
-	total+=count
-	start = end+1
-	end = start+100
-	windowCount+=1
+		for pileupcolumn in samfile.pileup("references", star, end):
+			count+=pileupcolumn.n	
+
+		print("The average coverage in window" + start + "-"+ end + "is"+count)
+
+		total+=count
+		start = end+1
+		end = start+100
+		windowCount+=1
 
 
-average = total/windowCount
+	average = total/windowCount
 
-print("The average coverage for the file is " + average)
+	print("The average coverage for the file is " + average)
 
 
 
