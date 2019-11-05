@@ -2,6 +2,8 @@ import os
 import sys
 import argparse
 import pysam
+import math
+from tqdm import tqdm
 from sortedcontainers import SortedSet
 
 def main():
@@ -76,25 +78,29 @@ def calculate_average_coverage_windows(inFile, windowSize):
     ref_dic = {}
     for r, l in zip(*[inFile.references, inFile.lengths]):
         ref_dic[r] = l
-
-    for references, lengths in ref_dic.items():
+        
+    for reference, length in tqdm(ref_dic.items()):
         start = 0
         end = windowSize
 
-        for window in range(lengths):
+        print(reference + " " + str(length))
+
+        total = 0
+        for window in range(math.floor(length/windowSize)):
             count = 0
-            total = 0
-            windowCount = 0
-            for pileupcolumn in inFile.pileup(references, start, end):
+            num_windows = 0
+
+            for pileupcolumn in inFile.pileup(reference, start, end):
                 count += pileupcolumn.n
 
-            print("The average coverage in window " + str(start) + " - " + str(end) + " is " + str(count))
-            total += count
+            # print("The average coverage in window " + str(start) + " - " + str(end) + " is " + str(count))
+            total += count/windowSize
             start = end + 1
-            end = start + 1000
-            windowCount += 1
-            average = total/windowCount
-            print("The average coverage for the file is " + str(average))
+            end = start + windowSize
+            num_windows += 1
+
+        average = total/num_windows
+        print("The average coverage for the file is " + str(average))
 
 
 if __name__ == '__main__':
