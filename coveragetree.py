@@ -1,5 +1,4 @@
 import sys
-import functools
 import pysam
 import numpy as np
 import math
@@ -30,23 +29,24 @@ class CoverageTree:
         self.lazyadd = np.zeros(self.MAX_N, dtype=np.int32)
 
         #Iterate over all mapped reads
-        for r in tqdm(self.file.fetch("chr1"), total=self.file.mapped):
-            if(r.is_unmapped): continue
+        #for r in tqdm(self.file.fetch("chr1"), total=self.file.mapped):
+        #    if(r.is_unmapped): continue
 
             #Scale reads to reduce resolution
-            readStart = r.reference_start >> self.WINDOW_POWER
-            readEnd = (r.reference_end + 1) >> self.WINDOW_POWER
+         #   readStart = r.reference_start >> self.WINDOW_POWER
+         #   readEnd = (r.reference_end + 1) >> self.WINDOW_POWER
 
             #Ensure interval is inclusive-exclusive
-            if(readStart == readEnd): readEnd += 1
+         #   if(readStart == readEnd): readEnd += 1
 
             #Incriment all bases in range by one
-            self._update(readStart, readEnd, 1)
+            #self._update(readStart, readEnd, 1)
 
         self._testCoverage()
+
         
     #Reports coverage of the interval of the first mapped read to ensure non-zero
-    def _testCoverage() {
+    def _testCoverage(self):
         firstRead = next(r for r in self.file.fetch("chr1") if not r.is_unmapped)
         firstReadStart = firstRead.reference_start >> self.WINDOW_POWER
         firstReadEnd = ((firstRead.reference_end + 1) >> self.WINDOW_POWER)
@@ -54,7 +54,7 @@ class CoverageTree:
         sumAns, minAns = self._query(firstReadStart, firstReadEnd)
         print("Average coverage [" + str(firstReadStart) + ", " + str(firstReadEnd) + ") = " + str(sumAns / (firstReadEnd - firstReadStart)))
         print("Min coverage [" + str(firstReadStart) + ", " + str(firstReadEnd) + ") = " +  str(minAns))
-    }
+        print("Median coverage [" + str(firstReadStart) + ", " + str(firstReadEnd) + ") = " + str(np.sort(self._getBaseCoverages())[math.floor(self.MAX_CHR_LENGTH/2)]))
 
     #Updates the sum/min arrays according to the lazy counter
     def _recalculate(self, id, l, r):
@@ -107,8 +107,8 @@ class CoverageTree:
         return sumAns, minAns
     
     #Returns a numpy subarray of the leaves, which correspond to individual base position coverages
-    def _getBaseCoverages():
-        return self.sumarray[1 << math.ceil(math.log(MAX_CHR_LENGTH, 2)):MAX_CHR_LENGTH]
+    def _getBaseCoverages(self):
+        return self.sumarray[self.MAX_N - self.MAX_CHR_LENGTH:]
         
 if __name__ == '__main__':
     ct = CoverageTree(sys.argv[1])
