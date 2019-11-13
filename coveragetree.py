@@ -6,12 +6,12 @@ from tqdm import tqdm
 
 class CoverageTree:
     #Number of times the chromosome length and read index resolutions are halved
-    WINDOW_POWER = 0
+    WINDOW_POWER = 0 #2^WINDOW_POWER is the window size but most of saving is memory rather than time
 
     #Maximum length of chromosome (~250 million bases in human)
     MAX_CHR_LENGTH = 250000000 >> WINDOW_POWER
 
-    #Size allocation of the tree padded to the next smallest power of two
+    #Size allocation of the binary tree (padded to the next smallest power of two for balance)
     MAX_N = 2*pow(2, math.ceil(math.log(MAX_CHR_LENGTH, 2)))
 
     def __init__(self, filename):
@@ -20,6 +20,7 @@ class CoverageTree:
         self.file = pysam.AlignmentFile(filename, "r")
 
         #Stores sum of all subtree coverages (faster but more memory than maintaining average at each node)
+        #TODO: removing this doubles python performance - if we don't need interval averages, remove
         self.sumarray = np.zeros(self.MAX_N, dtype=np.int64)
 
         #Stores the minimum of all subtree coverages
@@ -29,32 +30,34 @@ class CoverageTree:
         self.lazyadd = np.zeros(self.MAX_N, dtype=np.int32)
 
         #Iterate over all mapped reads
-        #for r in tqdm(self.file.fetch("chr1"), total=self.file.mapped):
-        #    if(r.is_unmapped): continue
+        for r in tqdm(self.file.fetch("chr1"), total=self.file.mapped):
+            if(r.is_unmapped): continue
 
             #Scale reads to reduce resolution
-         #   readStart = r.reference_start >> self.WINDOW_POWER
-         #   readEnd = (r.reference_end + 1) >> self.WINDOW_POWER
+            readStart = r.reference_start >> self.WINDOW_POWER
+            readEnd = (r.reference_end + 1) >> self.WINDOW_POWER
 
             #Ensure interval is inclusive-exclusive
-         #   if(readStart == readEnd): readEnd += 1
+            if(readStart == readEnd): readEnd += 1
 
             #Incriment all bases in range by one
-            #self._update(readStart, readEnd, 1)
+            self._update(readStart, readEnd, 1)
+
+        #Calculate median of mapped reads only
+        self.median = np.sort(self._getLeaves())[math.floor(self.MAX_CHR_LENGTH/2) + self.file.unmapped])
 
         self._testCoverage()
-
         
     #Reports coverage of the interval of the first mapped read to ensure non-zero
     def _testCoverage(self):
         firstRead = next(r for r in self.file.fetch("chr1") if not r.is_unmapped)
         firstReadStart = firstRead.reference_start >> self.WINDOW_POWER
-        firstReadEnd = ((firstRead.reference_end + 1) >> self.WINDOW_POWER)
+        firstReadEnd = (firstRead.reference_end + 1) >> self.WINDOW_POWER
         if(firstReadStart == firstReadEnd): firstReadEnd += 1
         sumAns, minAns = self._query(firstReadStart, firstReadEnd)
         print("Average coverage [" + str(firstReadStart) + ", " + str(firstReadEnd) + ") = " + str(sumAns / (firstReadEnd - firstReadStart)))
         print("Min coverage [" + str(firstReadStart) + ", " + str(firstReadEnd) + ") = " +  str(minAns))
-        print("Median coverage [" + str(firstReadStart) + ", " + str(firstReadEnd) + ") = " + str(np.sort(self._getBaseCoverages())[math.floor(self.MAX_CHR_LENGTH/2)]))
+        print("Median (mapped) coverage [" + str(firstReadStart) + ", " + str(firstReadEnd) + ") = " + str(self.median))
 
     #Updates the sum/min arrays according to the lazy counter
     def _recalculate(self, id, l, r):
@@ -105,10 +108,50 @@ class CoverageTree:
             sumAns += sumR
             minAns = min(minAns, minR)
         return sumAns, minAns
-    
-    #Returns a numpy subarray of the leaves, which correspond to individual base position coverages
-    def _getBaseCoverages(self):
+
+    #Returns a modifiable numpy subarray of the leaves, which correspond to individual base position coverages
+    def _getLeaves(self):
         return self.sumarray[self.MAX_N - self.MAX_CHR_LENGTH:]
+
+    #Reconstructs tree in linear time from modified leaves, bottom up
+    def _resetFromLeaves(self, i=1, cLeft=0, cRight=MAX_CHR_LENGTH):
+        self.lazyadd[i] = 0
+
+        if(cRight - cLeft == 1):
+            self.minarray[i] = self.sumarray[i]
+            return
+        if(uL < mid): self._resetFromLeaves(i * 2, cLeft, mid)
+        if(uR > mid): self._resetFromLeaves(i * 2 + 1, mid, cRight)
+
+        self.minarray[i] = min(self.minarray[i*2], self.minarray[i*2+1])
+        self.sumarray[i] = self.sumarray[i*2] + self.sumarray[i*2+1]
+
+    #Writes reads to a file without going below the median where possible
+    def _outputFiltered(self, filename):
+        outFile = pysam.AlignmentFile(filename, "wb", template=self.file)
+
+        threshold = self.median #TODO use n med-MADs instead
+
+        for r in tqdm(self.file.fetch("chr1"), total=self.file.mapped):
+            if(r.is_unmapped): continue
+
+            #Scale reads to reduce resolution
+            readStart = r.reference_start >> self.WINDOW_POWER
+            readEnd = (r.reference_end + 1) >> self.WINDOW_POWER
+
+            #Ensure interval is inclusive-exclusive
+            if(readStart == readEnd): readEnd += 1
+
+            #Write if the read is part of minimum
+            sumAns, minAns = self._query(readStart, readEnd)
+            if(minAns <= threshold):
+                outFile.write(r)
+                self._update(readStart, readEnd, -1)
         
 if __name__ == '__main__':
     ct = CoverageTree(sys.argv[1])
+
+    #array = ct._getLeaves() #TODO Shravan and Varsha write the base coverages into this array (size 250 million but you don't have to fill it) but will need to remove constructor range updates
+    #ct._resetFromLeaves()
+
+    #ct._outputFiltered("output.bam")
