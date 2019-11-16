@@ -17,7 +17,8 @@ class CoverageTree:
     MAX_N = 2*pow(2, math.ceil(math.log(MAX_CHR_LENGTH, 2)))
 
     def __init__(self, filename):
-        print("Constructing tree, chromosome scaled to " + str(self.MAX_CHR_LENGTH))
+        print("Constructing tree")
+        print("(Chromosome scaled to " + str(self.MAX_CHR_LENGTH) + ")")
 
         self.file = pysam.AlignmentFile(filename, "r")
 
@@ -41,6 +42,7 @@ class CoverageTree:
             #Incriment all bases in range by one
             self._update(readStart, readEnd, 1)
 
+        print("Pushing range updates to leaves")
         self.t = tqdm(total=self.MAX_CHR_LENGTH)
         self._updateAll()
         del self.t
@@ -49,11 +51,8 @@ class CoverageTree:
         leaves = self._getLeaves()
         leavesSorted = np.sort(leaves[leaves > 0])
         self.median = 0 if len(leavesSorted) == 0 else leavesSorted[math.floor(len(leavesSorted)/2)]
-        print("Median (mapped): " + str(self.median))
+        print("(Median = " + str(self.median) + ")")
 
-        #self._testCoverage()
-        
-        
     #Reports coverage of the interval of the first mapped read to ensure non-zero
     def _testCoverage(self):
         firstRead = next(r for r in self.file.fetch("chr1") if not r.is_unmapped)
@@ -99,7 +98,7 @@ class CoverageTree:
         if(uR > mid): self._update(max(uL, mid), uR, v, i * 2 + 1, mid, cRight)
         self._recalculate(i, cLeft, cRight)
     
-    #Non lazy update of tree, so that leaves are correct, super slow though so we need CIGAR method
+    #Non lazy update of tree, so that leaves are correct
     def _updateAll(self, i=1, cLeft=0, cRight=MAX_CHR_LENGTH):
         if(cRight - cLeft == 1):
             self.t.update(1)
@@ -136,6 +135,17 @@ class CoverageTree:
 
         self.minarray[i] = min(self.minarray[i*2], self.minarray[i*2+1])
 
+    #Calculates the median absolute deviation of base coverages
+    def _getMad():
+        coverages = self._getLeaves()
+        deviations = np.empty(len(coverages), dtype=np.int32)
+
+        for i in range(len(coverages)):
+            deviations[i] = abs(self.median - coverages[i])
+
+        deviations.sort()
+        return deviations[math.floor(len(deviations)/2)]
+
     #Writes high coverage intervals to a bed file
     def _outputSpikes(self, filename="spikes.bed"):
         threshold = self.median
@@ -153,12 +163,12 @@ class CoverageTree:
                     outFile.write(i + '\n')
                 wasSpike = isSpike
                 i += 1
-
         if(isSpike): 
             outFile.write(i + '\n')
 
     #Writes reads to a file without going below the median where possible
     def _outputFiltered(self, filename):
+        print("Writing filtered reads to " + filename)
         outFile = pysam.AlignmentFile(filename, "wb", template=self.file)
 
         for r in tqdm(self.file.fetch("chr1"), total=self.file.mapped):
