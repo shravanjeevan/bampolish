@@ -231,13 +231,14 @@ if __name__ == '__main__':
     #print(round(window))
 
     for x in array:
-        # elementSum = 0
         elementSum += array[x]
         i+=1
         if i == round(window):
             avg = elementSum/round(window)
             avgArray.append(round(avg))
             i = 0
+            elementSum = 0
+
 
     #for y in range(len(avgArray)):
         #print (avgArray[y])
