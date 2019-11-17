@@ -5,6 +5,7 @@ import pysam
 import math
 from tqdm import tqdm
 from sortedcontainers import SortedSet
+import numpy as np
 
 def main():
 
@@ -36,8 +37,9 @@ def main():
         outFile = pysam.AlignmentFile(args.output, "wb", template=inFile) # Default out as BAM (need to change later)
 
         # Perform operations
-        #coverage(inFile, outFile, args.coverage)
-        calculate_average_coverage_windows(inFile, args.window)
+        # coverage(inFile, outFile, args.coverage)
+        # calculate_average_coverage_windows(inFile, args.window)
+        CIGARCoverage(inFile)
 
 #This method is greedy but reads in low coverage areas may be missed if the current set is full
 #In future, windowing with a method to approach some average rather than a strict cutoff should be used
@@ -78,7 +80,7 @@ def calculate_average_coverage_windows(inFile, windowSize):
     ref_dic = {}
     for r, l in zip(*[inFile.references, inFile.lengths]):
         ref_dic[r] = l
-        
+
     for reference, length in tqdm(ref_dic.items()):
         start = 0
         end = windowSize
@@ -102,6 +104,21 @@ def calculate_average_coverage_windows(inFile, windowSize):
         average = total/num_windows
         print("The average coverage for the file is " + str(average))
 
+def CIGARCoverage(inFile):
+
+    # Create array to hold coverage
+    coverage_array = np.zeros(250000000, dtype=int)
+
+    for ref in inFile.references:
+        for read in tqdm(inFile.fetch(ref, until_eof=True), total=inFile.mapped):
+            if not read.is_unmapped:
+                # Only if read is mapped, perform these operations
+                counter = read.reference_start
+                for cigPair in read.cigartuples:
+                    # Reading each CIGAR alignment which is of the form (operation, length)
+                    if (cigPair[0] == 0) or (cigPair[0] == 4) or (cigPair[0] == 7) or (cigPair[0] == 8):
+                        # Match, soft-clip, == and mismatch all increase coverage
+                        coverage_array[counter : counter + cigPair[1]] += 1
 
 if __name__ == '__main__':
     main()

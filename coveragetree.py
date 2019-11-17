@@ -31,7 +31,7 @@ class CoverageTree:
         self.lazyadd = np.zeros(self.MAX_N, dtype=np.int32)
 
         #Iterate over all mapped reads
-        for r in tqdm(self.file.fetch("chr21"), total=self.file.mapped):
+        for r in tqdm(self.file.fetch("chr16"), total=self.file.mapped):
             if(r.is_unmapped): continue
 
             #Scale reads to reduce resolution
@@ -61,7 +61,7 @@ class CoverageTree:
         firstReadStart = firstRead.reference_start >> self.WINDOW_POWER
         firstReadEnd = (firstRead.reference_end + 1) >> self.WINDOW_POWER
         if(firstReadStart == firstReadEnd): firstReadEnd += 1
-        minAns = self._query(firstReadStart, firstReadEnd)        
+        minAns = self._query(firstReadStart, firstReadEnd)
         self._updateAll()
         leaves = self._getLeaves(firstReadStart, firstReadEnd)
         for leaf in leaves:
@@ -99,7 +99,7 @@ class CoverageTree:
         if(uL < mid): self._update(uL, min(uR, mid), v, i * 2, cLeft, mid)
         if(uR > mid): self._update(max(uL, mid), uR, v, i * 2 + 1, mid, cRight)
         self._recalculate(i, cLeft, cRight)
-    
+
     #Non lazy update of tree, so that leaves are correct
     def _updateAll(self, i=1, cLeft=0, cRight=MAX_CHR_LENGTH):
         if(cRight - cLeft == 1):
@@ -165,7 +165,7 @@ class CoverageTree:
                     outFile.write(i + '\n')
                 wasSpike = isSpike
                 i += 1
-        if(isSpike): 
+        if(isSpike):
             outFile.write(i + '\n')
 
     #Writes reads to a file without going below the median where possible
@@ -173,7 +173,7 @@ class CoverageTree:
         print("Writing filtered reads to " + filename)
         outFile = pysam.AlignmentFile(filename, "wb", template=self.file)
 
-        for r in tqdm(self.file.fetch("chr21"), total=self.file.mapped):
+        for r in tqdm(self.file.fetch("chr16"), total=self.file.mapped):
             if r.is_unmapped: continue
 
             #Scale reads to reduce resolution
@@ -198,7 +198,7 @@ class CoverageTree:
 #        avgArray = []
 #        count = 0
 #
-#        for x in array: 
+#        for x in array:
 #            elementSum += array[x]
 #            i+=1
 #            if i == 10000 :
@@ -211,13 +211,13 @@ class CoverageTree:
 #        plt.ylabel('Coverage')
 #        plt.show()
 
-   
+
 if __name__ == '__main__':
     ct = CoverageTree(sys.argv[1])
 
     #TODO Shravan and Varsha write the base coverages into this array (size 250 million but you don't have to fill it) but will need to remove constructor range updates
     array = ct._getLeaves()
-    
+
     window = len(array)/576
     avgArray = []
     elementSum = 0
@@ -226,28 +226,28 @@ if __name__ == '__main__':
     xVal = []
 
     #print(len(array))
-    #for y in range(len(array)): 
+    #for y in range(len(array)):
     	#print (array[y])
     #print(round(window))
 
     for x in array:
-    	elementSum += array[x]
-    	i+=1
-    	if i == round(window) :
-    		avg = elementSum/round(window)
-    		avgArray.append(round(avg))
-    		i = 0
+        # elementSum = 0
+        elementSum += array[x]
+        i+=1
+        if i == round(window):
+            avg = elementSum/round(window)
+            avgArray.append(round(avg))
+            i = 0
 
-  
-    #for y in range(len(avgArray)): 
-    	#print (avgArray[y])
+    #for y in range(len(avgArray)):
+        #print (avgArray[y])
 
     for z in range(575):
-    	xVal.append(z)
+        xVal.append(z)
 
     #print(len(xVal))
     #print(len(avgArray))
-  
+
     ax = plt.bar(xVal, avgArray)
     plt.ylabel('Coverage')
     plt.xlabel('Base Window')
@@ -256,15 +256,3 @@ if __name__ == '__main__':
     #graph = _printCoverage(array)
     #ct._resetFromLeaves()
     ct._outputFiltered("output2.bam")
-
-
-
-
-
-
-
-
-
-
-
-
