@@ -5,13 +5,15 @@ import math
 from tqdm import tqdm
 import pdb
 import random
+import matplotlib.pyplot as plt
+
 
 class CoverageTree:
     #Number of times the chromosome length and read index resolutions are halved
     WINDOW_POWER = 8 #2^WINDOW_POWER is the window size but most of saving is memory rather than time
 
     #Maximum length of chromosome (~250 million bases in human)
-    MAX_CHR_LENGTH = 250000000 >> WINDOW_POWER
+    MAX_CHR_LENGTH = 47000000 >> WINDOW_POWER
 
     #Size allocation of the binary tree (padded to the next smallest power of two for balance)
     MAX_N = 2*pow(2, math.ceil(math.log(MAX_CHR_LENGTH, 2)))
@@ -29,7 +31,7 @@ class CoverageTree:
         self.lazyadd = np.zeros(self.MAX_N, dtype=np.int32)
 
         #Iterate over all mapped reads
-        for r in tqdm(self.file.fetch("chr1"), total=self.file.mapped):
+        for r in tqdm(self.file.fetch("chr21"), total=self.file.mapped):
             if(r.is_unmapped): continue
 
             #Scale reads to reduce resolution
@@ -55,7 +57,7 @@ class CoverageTree:
 
     #Reports coverage of the interval of the first mapped read to ensure non-zero
     def _testCoverage(self):
-        firstRead = next(r for r in self.file.fetch("chr1") if not r.is_unmapped)
+        firstRead = next(r for r in self.file.fetch("chr21") if not r.is_unmapped)
         firstReadStart = firstRead.reference_start >> self.WINDOW_POWER
         firstReadEnd = (firstRead.reference_end + 1) >> self.WINDOW_POWER
         if(firstReadStart == firstReadEnd): firstReadEnd += 1
@@ -171,7 +173,7 @@ class CoverageTree:
         print("Writing filtered reads to " + filename)
         outFile = pysam.AlignmentFile(filename, "wb", template=self.file)
 
-        for r in tqdm(self.file.fetch("chr1"), total=self.file.mapped):
+        for r in tqdm(self.file.fetch("chr21"), total=self.file.mapped):
             if r.is_unmapped: continue
 
             #Scale reads to reduce resolution
@@ -191,12 +193,78 @@ class CoverageTree:
 
         outFile.close()
         pysam.index(filename)
-        
+
+#    def _printCoverage(array):
+#        avgArray = []
+#        count = 0
+#
+#        for x in array: 
+#            elementSum += array[x]
+#            i+=1
+#            if i == 10000 :
+#                avg = elementSum/10000
+#                avgArray[count] = avg
+#                count += 1
+#                i = 0
+#
+#        plt.plot(avgArray)
+#        plt.ylabel('Coverage')
+#        plt.show()
+
+   
 if __name__ == '__main__':
     ct = CoverageTree(sys.argv[1])
 
     #TODO Shravan and Varsha write the base coverages into this array (size 250 million but you don't have to fill it) but will need to remove constructor range updates
-    #array = ct._getLeaves() 
-    #ct._resetFromLeaves()
+    array = ct._getLeaves()
+    
+    window = len(array)/576
+    avgArray = []
+    elementSum = 0
+    avg = 0
+    i= 0
+    xVal = []
 
+    #print(len(array))
+    #for y in range(len(array)): 
+    	#print (array[y])
+    #print(round(window))
+
+    for x in array:
+    	elementSum += array[x]
+    	i+=1
+    	if i == round(window) :
+    		avg = elementSum/round(window)
+    		avgArray.append(round(avg))
+    		i = 0
+
+  
+    #for y in range(len(avgArray)): 
+    	#print (avgArray[y])
+
+    for z in range(575):
+    	xVal.append(z)
+
+    #print(len(xVal))
+    #print(len(avgArray))
+  
+    ax = plt.bar(xVal, avgArray)
+    plt.ylabel('Coverage')
+    plt.xlabel('Base Window')
+    plt.title('Coverage of Chromosome')
+    plt.savefig("coverage.png")
+    #graph = _printCoverage(array)
+    #ct._resetFromLeaves()
     ct._outputFiltered("output2.bam")
+
+
+
+
+
+
+
+
+
+
+
+
