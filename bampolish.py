@@ -53,7 +53,7 @@ def main():
         array = ct._getLeaves()
 
         # Write output
-        ct._outputFiltered(outFile, args.verbose)
+        ct._outputFiltered(outFile, args.verbose, args.progressbar)
 
         # Write bedfile output
         ct._outputSpikes(filename=str(basename + "_spikes.bed"))
