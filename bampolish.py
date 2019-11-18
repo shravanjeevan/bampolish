@@ -21,7 +21,8 @@ def main():
                         help="Desired window size to calculate average coverage for", default=1000, type=int)
     parser.add_argument("-c", "--coverage",
                         help="Desired coverage limit for sequence for read", default=10, type=int)
-
+    parser.add_argument("-p", "--progressbar",
+                        help="Display progress bar in terminal for all operations", default=True)
     args = parser.parse_args()
 
     # Reading in of sam/bam file
@@ -37,14 +38,23 @@ def main():
         outFile = pysam.AlignmentFile(args.output, "wb", template=inFile) # Default out as BAM (need to change later)
 
         # Perform operations
-        # coverage(inFile, outFile, args.coverage)
+        # coverage(inFile, outFile, args.coverage, args.verbose)
         # calculate_average_coverage_windows(inFile, args.window)
-        CIGARCoverage(inFile)
+        CIGARCoverage(inFile, args.verbose, args.progressbar)
 
-#This method is greedy but reads in low coverage areas may be missed if the current set is full
-#In future, windowing with a method to approach some average rather than a strict cutoff should be used
-def coverage(inFile, ouFile, maxCoverage):
+        # Close all files
+        inFile.close()
+        outFile.close()
 
+
+def greedyCoverage(inFile, outFile, maxCoverage, verbose):
+    '''
+    This method is greedy but reads in low coverage areas may be missed if the
+    current set is full.
+    '''
+
+    if verbose:
+        print("Reducing coverage using the Greedy method")
 
     curr = SortedSet()
     mapped = 0
@@ -53,28 +63,30 @@ def coverage(inFile, ouFile, maxCoverage):
         if(r.is_unmapped): continue
         mapped += 1
 
-        #Attempt to find read that ends before this one
+        # Attempt to find read that ends before this one
         itr = curr.irange(maximum=r.reference_start)
         try:
             ending = itr.__next__()
-
-            #Some read is ending, replace it in the current set
+            # Some read is ending, replace it in the current set
             curr.discard(ending)
             curr.add(r.reference_end)
             outFile.write(r)
             filtered += 1
         except StopIteration:
             if(len(curr) < maxCoverage):
-                #There is still room to include this read
+                # There is still room to include this read
                 curr.add(r.reference_end)
                 outFile.write(r)
                 filtered += 1
 
-    outFile.close()
-    inFile.close()
-    print("Reduced BAM from " + str(mapped) + " to " + str(filtered) + " reads")
+    if verbose:
+        print("Reduced BAM from " + str(mapped) + " to " + str(filtered) + " reads")
 
-def calculate_average_coverage_windows(inFile, windowSize):
+
+def calculate_average_coverage_windows(inFile, windowSize, verbose):
+    '''
+    Calculates average using windows of specified size. Slow but produces exact result
+    '''
 
     # Build dictionary of references
     ref_dic = {}
@@ -85,7 +97,8 @@ def calculate_average_coverage_windows(inFile, windowSize):
         start = 0
         end = windowSize
 
-        print(reference + " " + str(length))
+        if verbose:
+            print(reference + " " + str(length))
 
         total = 0
         for window in range(math.floor(length/windowSize)):
@@ -95,22 +108,32 @@ def calculate_average_coverage_windows(inFile, windowSize):
             for pileupcolumn in inFile.pileup(reference, start, end):
                 count += pileupcolumn.n
 
-            # print("The average coverage in window " + str(start) + " - " + str(end) + " is " + str(count))
+            if verbose:
+                print("The average coverage in window " + str(start) + " - " + str(end) + " is " + str(count))
             total += count/windowSize
             start = end + 1
             end = start + windowSize
             num_windows += 1
 
         average = total/num_windows
-        print("The average coverage for the file is " + str(average))
 
-def CIGARCoverage(inFile):
+        if verbose:
+            print("The average coverage for the file is " + str(average))
 
+def CIGARCoverage(inFile, verboseFlag, progressbarFlag):
+    '''
+    Calculates coverage by analysing CIGAR strings. The method is documented here:
+    https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6030888/#sup1
+    https://github.com/brentp/mosdepth#howitworks
+    '''
     # Create array to hold coverage
     coverage_array = np.zeros(250000000, dtype=int)
 
+
     for ref in inFile.references:
-        for read in tqdm(inFile.fetch(ref, until_eof=True), total=inFile.mapped):
+        if verboseFlag:
+            print("===== Processing " + str(ref) + " =====")
+        for read in tqdm(inFile.fetch(ref, until_eof=True), total=inFile.count(reference=ref, until_eof=True), disable=not progressbarFlag):
             if not read.is_unmapped:
                 # Only if read is mapped, perform these operations
                 counter = read.reference_start
@@ -119,6 +142,13 @@ def CIGARCoverage(inFile):
                     if (cigPair[0] == 0) or (cigPair[0] == 4) or (cigPair[0] == 7) or (cigPair[0] == 8):
                         # Match, soft-clip, == and mismatch all increase coverage
                         coverage_array[counter : counter + cigPair[1]] += 1
+                    # Increment counter
+                    counter += cigPair[1]
+
+    # Find cumulative sum to calculate the total coverage array
+    coverage_array_final = coverage_array.cumsum()
+
+    return coverage_array_final
 
 if __name__ == '__main__':
     main()
