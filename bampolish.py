@@ -6,6 +6,7 @@ import math
 from tqdm import tqdm
 from sortedcontainers import SortedSet
 import numpy as np
+from coveragetree import CoverageTree
 
 def main():
 
@@ -14,15 +15,17 @@ def main():
     parser.add_argument("-i", "--input",
                         help="Input sam or bam filename")
     parser.add_argument("-o", "--output",
-                        help="Output sam, bam or bed filename", default="output.bam")
+                        help="NOT WORKING - DO NOT USE. Output sam, bam")
     parser.add_argument("-v", "--verbose", action='store_true',
                         help="Verbose output", default=False)
-    parser.add_argument("-w", "--window",
-                        help="Desired window size to calculate average coverage for", default=1000, type=int)
+    parser.add_argument("-w", "--windowPower",
+                        help="Desired window power for coverage calculation", default=8, type=int)
     parser.add_argument("-c", "--coverage",
                         help="Desired coverage limit for sequence for read", default=10, type=int)
-    parser.add_argument("-p", "--progressbar",
-                        help="Display progress bar in terminal for all operations", default=True)
+    parser.add_argument("-p", "--progressbar", action='store_true',
+                        help="Display progress bar in terminal for all operations", default=False)
+    parser.add_argument("-g", "--graphOutput", action='store_true',
+                        help="Produce a column graph using matplotlib on output coverage", default=False)
     args = parser.parse_args()
 
     # Reading in of sam/bam file
@@ -33,27 +36,44 @@ def main():
         sys.stderr.write("ERROR: Provided file is not of sam or bam type\n")
         exit()
     else:
+        basename = args.input.split('.')[0]
+
         # Read in files
         inFile = pysam.AlignmentFile(args.input, "r") # Autodetect SAM/BAM
-        outFile = pysam.AlignmentFile(args.output, "wb", template=inFile) # Default out as BAM (need to change later)
+        outFile = pysam.AlignmentFile(str(basename + "_out.bam"), "wb", template=inFile) # Default out as BAM (need to change later)
 
         # Perform operations
         # coverage(inFile, outFile, args.coverage, args.verbose)
         # calculate_average_coverage_windows(inFile, args.window)
-        CIGARCoverage(inFile, args.verbose, args.progressbar)
 
+        # Build coverage tree
+        ct = CoverageTree(inFile, args.windowPower, args.verbose, args.progressbar)
+
+        #TODO Shravan and Varsha write the base coverages into this array (size 250 million but you don't have to fill it) but will need to remove constructor range updates
+        array = ct._getLeaves()
+
+        # Write output
+        ct._outputFiltered(outFile, args.verbose)
+
+        # Write bedfile output
+        ct._outputSpikes(filename=str(basename + "_spikes.bed"))
+
+        # CIGARCoverage(inFile, args.verbose, args.progressbar)
+
+        if graphOutput:
+            plotOutput(array, basename)
         # Close all files
         inFile.close()
         outFile.close()
 
 
-def greedyCoverage(inFile, outFile, maxCoverage, verbose):
+def greedyCoverage(inFile, outFile, maxCoverage, verboseFlag):
     '''
     This method is greedy but reads in low coverage areas may be missed if the
     current set is full.
     '''
 
-    if verbose:
+    if verboseFlag:
         print("Reducing coverage using the Greedy method")
 
     curr = SortedSet()
@@ -79,11 +99,11 @@ def greedyCoverage(inFile, outFile, maxCoverage, verbose):
                 outFile.write(r)
                 filtered += 1
 
-    if verbose:
+    if verboseFlag:
         print("Reduced BAM from " + str(mapped) + " to " + str(filtered) + " reads")
 
 
-def calculate_average_coverage_windows(inFile, windowSize, verbose):
+def calculate_average_coverage_windows(inFile, windowSize, verboseFlag):
     '''
     Calculates average using windows of specified size. Slow but produces exact result
     '''
@@ -97,7 +117,7 @@ def calculate_average_coverage_windows(inFile, windowSize, verbose):
         start = 0
         end = windowSize
 
-        if verbose:
+        if verboseFlag:
             print(reference + " " + str(length))
 
         total = 0
@@ -108,7 +128,7 @@ def calculate_average_coverage_windows(inFile, windowSize, verbose):
             for pileupcolumn in inFile.pileup(reference, start, end):
                 count += pileupcolumn.n
 
-            if verbose:
+            if verboseFlag:
                 print("The average coverage in window " + str(start) + " - " + str(end) + " is " + str(count))
             total += count/windowSize
             start = end + 1
@@ -126,9 +146,9 @@ def CIGARCoverage(inFile, verboseFlag, progressbarFlag):
     https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6030888/#sup1
     https://github.com/brentp/mosdepth#howitworks
     '''
+
     # Create array to hold coverage
     coverage_array = np.zeros(250000000, dtype=int)
-
 
     for ref in inFile.references:
         if verboseFlag:
@@ -149,6 +169,38 @@ def CIGARCoverage(inFile, verboseFlag, progressbarFlag):
     coverage_array_final = coverage_array.cumsum()
 
     return coverage_array_final
+
+def graphOutput(array, basename):
+    '''
+    Plots a column graph of coverage using matplotlib
+    '''
+
+    window = len(array)/576
+    avgArray = []
+    elementSum = 0
+    avg = 0
+    i = 0
+    xVal = []
+
+    for x in array:
+        elementSum += array[x]
+        i += 1
+        if i == round(window):
+            avg = elementSum/round(window)
+            avgArray.append(round(avg))
+            i = 0
+            elementSum = 0
+
+    for z in range(575):
+        xVal.append(z)
+
+    ax = plt.bar(xVal, avgArray)
+    plt.ylabel('Coverage')
+    plt.xlabel('Bases (Windowed)')
+    plt.title('Normalised Coverage of ' + basename)
+
+    plt.savefig(str(basename + "_plot.png"))
+
 
 if __name__ == '__main__':
     main()
