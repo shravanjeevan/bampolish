@@ -182,7 +182,7 @@ class CoverageTree:
     def _outputFiltered(self, outFile, verboseFlag, progressbarFlag):
 
         if verboseFlag:
-            print("Writing filtered reads to " + outFile)
+            print("Writing filtered reads to output file")
 
         for ref in self.file.references:
             if verboseFlag:
