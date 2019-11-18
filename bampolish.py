@@ -7,9 +7,9 @@ from tqdm import tqdm
 from sortedcontainers import SortedSet
 import numpy as np
 from coveragetree import CoverageTree
+import matplotlib.pyplot as plt
 
 def main():
-
     parser = argparse.ArgumentParser(description="bampolish - A tool to normalise coverage in long read sequencing pipelines")
 
     parser.add_argument("-i", "--input",
@@ -19,7 +19,7 @@ def main():
     parser.add_argument("-v", "--verbose", action='store_true',
                         help="Verbose output", default=False)
     parser.add_argument("-w", "--windowPower",
-                        help="Desired window power for coverage calculation", default=8, type=int)
+                        help="Desired window power for coverage calculation", default=5, type=int)
     parser.add_argument("-c", "--coverage",
                         help="Desired coverage limit for sequence for read", default=10, type=int)
     parser.add_argument("-p", "--progressbar", action='store_true',
@@ -40,28 +40,46 @@ def main():
 
         # Read in files
         inFile = pysam.AlignmentFile(args.input, "r") # Autodetect SAM/BAM
-        outFile = pysam.AlignmentFile(str(basename + "_out.bam"), "wb", template=inFile) # Default out as BAM (need to change later)
+        outName = str(basename + "_out.bam")
+        outFile = pysam.AlignmentFile(outName, "wb", template=inFile) # Default out as BAM (need to change later)
 
         # Perform operations
         # coverage(inFile, outFile, args.coverage, args.verbose)
         # calculate_average_coverage_windows(inFile, args.window)
 
         # Build coverage tree
-        ct = CoverageTree(inFile, args.windowPower, args.verbose, args.progressbar)
 
-        #TODO Shravan and Varsha write the base coverages into this array (size 250 million but you don't have to fill it) but will need to remove constructor range updates
-        array = ct._getLeaves()
+        for ref in inFile.references:
+            total = inFile.count(reference=ref, until_eof=True)
+            if total == 0: continue
+            
+            #Currently we remake tree each time, but memory should be reused in future
+            ct = CoverageTree(inFile, ref, total, args.windowPower, args.verbose, args.progressbar)
 
-        # Write output
-        ct._outputFiltered(outFile, args.verbose, args.progressbar)
+            # Write output
+            ct._outputFiltered(outFile)
+            outFile.close()
+            pysam.index(outName)
 
-        # Write bedfile output
-        ct._outputSpikes(filename=str(basename + "_spikes.bed"))
+            # Write bedfile output WARNING: the leaves are incorrect???
+            #77
+            #77
+            #0
+            #0
+            #78
+            #77
+            #0
+            #0
+            #77
+            #78
 
-        # CIGARCoverage(inFile, args.verbose, args.progressbar)
+            ct._outputSpikes(filename=str(basename + "_spikes.bed"))
 
-        if graphOutput:
-            plotOutput(array, basename)
+            # CIGARCoverage(inFile, args.verbose, args.progressbar)
+
+            if args.graphOutput:
+                plotOutput(array, basename)
+                array = ct._getLeaves()
         # Close all files
         inFile.close()
         outFile.close()
@@ -101,7 +119,6 @@ def greedyCoverage(inFile, outFile, maxCoverage, verboseFlag):
 
     if verboseFlag:
         print("Reduced BAM from " + str(mapped) + " to " + str(filtered) + " reads")
-
 
 def calculate_average_coverage_windows(inFile, windowSize, verboseFlag):
     '''
@@ -170,7 +187,7 @@ def CIGARCoverage(inFile, verboseFlag, progressbarFlag):
 
     return coverage_array_final
 
-def graphOutput(array, basename):
+def plotOutput(array, basename):
     '''
     Plots a column graph of coverage using matplotlib
     '''

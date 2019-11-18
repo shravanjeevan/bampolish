@@ -7,25 +7,30 @@ import pdb
 import random
 import matplotlib.pyplot as plt
 
-
 class CoverageTree:
-    # Number of times the chromosome length and read index resolutions are halved
-    WINDOW_POWER = 0 # 2^WINDOW_POWER is the window size but most of saving is memory rather than time
+    CUTOFF_MEDMAD = 1
+    CUTOFF_SD = 2
 
-    # Maximum length of chromosome (~250 million bases in human)
-    MAX_CHR_LENGTH = 250000000 >> WINDOW_POWER
+    def __init__(self, inFile, ref, total, windowPower, verboseFlag, progressbarFlag):
+        self.file = inFile
 
-    # Size allocation of the binary tree (padded to the next smallest power of two for balance)
-    MAX_N = 2*pow(2, math.ceil(math.log(MAX_CHR_LENGTH, 2)))
+        # Number of times the chromosome length and read index resolutions are halved
+        self.WINDOW_POWER = windowPower
 
-    def __init__(self, inFile, windowPower, verboseFlag, progressbarFlag):
+        self.WINDOW_SIZE = math.floor(math.pow(2, self.WINDOW_POWER))
+        self.verboseFlag = verboseFlag
+        self.progressbarFlag = progressbarFlag
 
-        if verboseFlag:
+        # Maximum length of chromosome (~250 million bases in human)
+        # Should pass in length too, this calculation is slow
+        self.MAX_CHR_LENGTH = self.file.lengths[self.file.references.index(ref)] >> self.WINDOW_POWER
+        
+        # Size allocation of the binary tree (padded to the next smallest power of two for balance)
+        self.MAX_N = 2*pow(2, math.ceil(math.log(self.MAX_CHR_LENGTH, 2)))
+
+        if self.verboseFlag:
             print("Constructing tree")
             print("(Chromosome scaled to " + str(self.MAX_CHR_LENGTH) + ")")
-
-        self.file = inFile
-        self.WINDOW_POWER = windowPower
 
         # Stores the minimum of all subtree coverages
         self.minarray = np.zeros(self.MAX_N, dtype=np.int32)
@@ -33,53 +38,43 @@ class CoverageTree:
         # Used to prevent inefficient propagation during queries
         self.lazyadd = np.zeros(self.MAX_N, dtype=np.int32)
 
-        # Iterate over all mapped reads
-        for ref in self.file.references:
-            if verboseFlag:
-                print("===== Processing " + str(ref) + " =====")
-            for r in tqdm(self.file.fetch(ref), total=self.file.count(reference=ref, until_eof=True), disable=not progressbarFlag):
-                if(r.is_unmapped): continue
+        # Iterate over all mapped reads in ref
+        if self.verboseFlag:
+            print("===== Processing " + str(ref) + " =====")
+        for r in tqdm(self.file.fetch(ref), total=total, disable=not self.progressbarFlag):
+            if(r.is_unmapped): continue
 
-                # Scale reads to reduce resolution
-                readStart = r.reference_start >> self.WINDOW_POWER
-                readEnd = (r.reference_end + 1) >> self.WINDOW_POWER
+            # Scale reads to reduce resolution
+            readStart = r.reference_start >> self.WINDOW_POWER
+            readEnd = (r.reference_end + 1) >> self.WINDOW_POWER
 
-                # Ensure interval is inclusive-exclusive
-                if(readStart == readEnd): readEnd += 1
+            # Ensure interval is inclusive-exclusive
+            if(readStart == readEnd): readEnd += 1
 
-                # Increment all bases in range by one
-                self._update(readStart, readEnd, 1)
+            # Increment all bases in range by one
+            self._update(readStart, readEnd, 1)
 
-        if verboseFlag:
+        if self.verboseFlag:
             print("Pushing range updates to leaves")
         self.t = tqdm(total=self.MAX_CHR_LENGTH)
         self._updateAll()
+        self.t.close()
         del self.t
 
         # Calculate median of mapped bases only
-        leaves = self._getLeaves()
-        leavesSorted = np.sort(leaves[leaves > 0])
-        self.median = 0 if len(leavesSorted) == 0 else leavesSorted[math.floor(len(leavesSorted)/2)]
-        if verboseFlag:
+        self.median = self._getMedian()
+        if self.verboseFlag:
             print("(Median = " + str(self.median) + ")")
 
-    # Reports coverage of the interval of the first mapped read to ensure non-zero
-    def _testCoverage(self, verboseFlag):
-        firstRead = next(r for r in self.file.fetch("chr1") if not r.is_unmapped)
-        firstReadStart = firstRead.reference_start >> self.WINDOW_POWER
-        firstReadEnd = (firstRead.reference_end + 1) >> self.WINDOW_POWER
-        if(firstReadStart == firstReadEnd): firstReadEnd += 1
-        minAns = self._query(firstReadStart, firstReadEnd)
-        self._updateAll()
-        leaves = self._getLeaves(firstReadStart, firstReadEnd)
-        for leaf in leaves:
-            print(str(leaf) + ' ')
-        leavesSorted = np.sort(leaves[leaves > 0])
-        self.median = 0 if len(leavesSorted) == 0 else leavesSorted[math.floor(len(leavesSorted)/2)]
+        self.mad = self._getMad()
+        if self.verboseFlag:
+            print("(MAD = " + str(self.mad) + ")")
 
-        if verboseFlag:
-            print("Min coverage [" + str(firstReadStart) + ", " + str(firstReadEnd) + ") = " +  str(minAns))
-            print("Median (mapped) coverage [" + str(firstReadStart) + ", " + str(firstReadEnd) + ") = " + str(self.median))
+    def _initRefFromFile():
+        return
+
+    def _initRefFromCigar():
+        return
 
     # Updates the sum/min arrays according to the lazy counter
     def _recalculate(self, id, l, r):
@@ -100,7 +95,8 @@ class CoverageTree:
         self.lazyadd[id] = 0
 
     # Increments all base coverages within the given interval
-    def _update(self, uL, uR, v, i=1, cLeft=0, cRight=MAX_CHR_LENGTH):
+    def _update(self, uL, uR, v, i=1, cLeft=0, cRight=None):
+        cRight = cRight or self.MAX_CHR_LENGTH
         if(uL == cLeft and uR == cRight):
             self._update_lazy(i, v, cLeft, cRight)
             return
@@ -111,8 +107,10 @@ class CoverageTree:
         self._recalculate(i, cLeft, cRight)
 
     # Non lazy update of tree, so that leaves are correct
-    def _updateAll(self, i=1, cLeft=0, cRight=MAX_CHR_LENGTH):
+    def _updateAll(self, i=1, cLeft=0, cRight=None):
+        cRight = cRight or self.MAX_CHR_LENGTH
         if(cRight - cLeft == 1):
+            self._recalculate(i, cLeft, cRight)
             self.t.update(1)
             return
         self._propagate(i, cLeft, cRight)
@@ -122,7 +120,8 @@ class CoverageTree:
         self._recalculate(i, cLeft, cRight)
 
     # Returns sum and minimum coverages within the given interval
-    def _query(self, qL, qR, i=1, cLeft=0,  cRight=MAX_CHR_LENGTH):
+    def _query(self, qL, qR, i=1, cLeft=0,  cRight=None):
+        cRight = cRight or self.MAX_CHR_LENGTH
         if(qL == cLeft and qR == cRight):
             return self.minarray[i]
         self._propagate(i, cLeft, cRight)
@@ -134,11 +133,12 @@ class CoverageTree:
 
     # TODO: Fix changes not getting pushed to leaves (which is good but can't extract this way then)
     # Returns a modifiable numpy subarray of the leaves, which correspond to individual base position coverages
-    def _getLeaves(self, cLeft=0, cRight=MAX_CHR_LENGTH):
-        return self.lazyadd[self.MAX_N-self.MAX_CHR_LENGTH+cLeft : self.MAX_N-self.MAX_CHR_LENGTH+cRight]
+    def _getLeaves(self):
+        return self.minarray[self.MAX_N-self.MAX_CHR_LENGTH : self.MAX_N]
 
     # Reconstructs tree in linear time from modified leaves, bottom up
-    def _resetFromLeaves(self, i=1, cLeft=0, cRight=MAX_CHR_LENGTH):
+    def _resetFromLeaves(self, i=1, cLeft=0, cRight=None):
+        cRight = cRight or self.MAX_CHR_LENGTH
         self.lazyadd[i] = 0
         if(cRight - cLeft == 1):
             return
@@ -147,9 +147,25 @@ class CoverageTree:
 
         self.minarray[i] = min(self.minarray[i*2], self.minarray[i*2+1])
 
+    def _getMean(self):
+        leaves = self._getLeaves()
+        return numpy.average(leaves[leaves > 0])
+
+    def _getSD(self):
+        coverages = self._getLeaves()[self._getLeaves() > 0]
+        squareDiffSum = 0
+        for i in range(len(coverages)):
+            squareDiffSum += math.pow(coverages[i] - self.mean, 2)
+        return math.sqrt(squareDiffSum/len(coverages))
+
+    def _getMedian(self):
+        leaves = self._getLeaves()
+        leavesSorted = np.sort(leaves[leaves > 0])
+        return 0 if len(leavesSorted) == 0 else leavesSorted[math.floor(len(leavesSorted)/2)]
+
     # Calculates the median absolute deviation of base coverages
-    def _getMad():
-        coverages = self._getLeaves()
+    def _getMad(self):
+        coverages = self._getLeaves()[self._getLeaves() > 0]
         deviations = np.empty(len(coverages), dtype=np.int32)
 
         for i in range(len(coverages)):
@@ -159,50 +175,71 @@ class CoverageTree:
         return deviations[math.floor(len(deviations)/2)]
 
     # Writes high coverage intervals to a bed file
-    def _outputSpikes(self, filename):
-        threshold = self.median
+    def _outputSpikes(self, filename, cutoff=CUTOFF_MEDMAD, n=8):
+        baseline = self.mean if cutoff == self.CUTOFF_SD else self.median
+        deviation = self.sd if cutoff == self.CUTOFF_SD else self.mad
+        threshHi = baseline + n * deviation
+        threshLo = baseline - n * deviation
+        
+        spikeStart = 0
+        spikeCurr = 0
+        cumsum = 0
+        wasHiSpike = False
+        isHiSpike = False
+        wasLoSpike = False
+        isLoSpike = False
+        spike_id = 0
         i = 0
-        wasSpike = false
-        isSpike = false
-        with open(filename,'wb') as outFile:
-            for c in self._getLeaves():
-                isSpike = (c > threshold)
-                if(isSpike and not wasSpike):
-                    #Start spike
-                    outFile.write(i + '\t')
-                elif(wasSpike and not isSpike):
-                    #End spike
-                    outFile.write(i + '\n')
-                wasSpike = isSpike
+        leaves = self._getLeaves()
+        with open(filename,'w') as outFile:
+            for c in leaves:
+                print(c)
                 i += 1
-        if(isSpike):
-            outFile.write(i + '\n')
+                if(i == 10000): break
+                isHiSpike = (c > threshHi)
+                isLoSpike = (c < threshLo)
+                if((isHiSpike and not wasHiSpike)):# or (isLoSpike and not wasLoSpike)):
+                    #Start spike
+                    spikeStart = spikeCurr
+                    cumsum = 0
+                elif((isHiSpike and spikeCurr == len(self._getLeaves())-1) or (wasHiSpike and not isHiSpike)):# or (wasLoSpike and not isLoSpike)):
+                    #End spike
+                    outFile.write("chr22" + '\t' + str(spikeStart << self.WINDOW_POWER) + '\t' + str(spikeCurr << self.WINDOW_POWER) + '\t' + "spike_" + str(spike_id) + '\t' + str(cumsum/(spikeCurr - spikeStart)) + '\n')
+                    spike_id += 1
+                wasHiSpike = isHiSpike
+                wasLoSpike = isLoSpike
+                spikeCurr += 1
+                cumsum += c
 
     # Writes reads to a file without going below the median where possible
-    def _outputFiltered(self, outFile, verboseFlag, progressbarFlag):
+    # Decay (0, 1] increases the reads included above the otherwise strict cutoff
+    def _outputFiltered(self, outFile, cutoff=CUTOFF_MEDMAD, n=4, decay=0):
+        baseline = self.mean if cutoff == self.CUTOFF_SD else self.median
+        deviation = self.sd if cutoff == self.CUTOFF_SD else self.mad
+        threshHi = baseline + n * deviation
 
-        if verboseFlag:
+        if self.verboseFlag:
             print("Writing filtered reads to output file")
 
         for ref in self.file.references:
-            if verboseFlag:
+            total = self.file.count(reference=ref, until_eof=True)
+            if total == 0: continue
+            if self.verboseFlag:
                 print("===== Processing " + str(ref) + " =====")
-        for r in tqdm(self.file.fetch(ref), total=self.file.count(reference=ref, until_eof=True), disable=not progressbarFlag):
-            if r.is_unmapped: continue
+            for r in tqdm(self.file.fetch(ref), total=total, disable=not self.progressbarFlag):
+                if r.is_unmapped: continue
 
-            # Scale reads to reduce resolution
-            readStart = r.reference_start >> self.WINDOW_POWER
-            readEnd = (r.reference_end + 1) >> self.WINDOW_POWER
+                # Scale reads to reduce resolution
+                readStart = r.reference_start >> self.WINDOW_POWER
+                readEnd = (r.reference_end + 1) >> self.WINDOW_POWER
 
-            # Ensure interval is inclusive-exclusive
-            if(readStart == readEnd): readEnd += 1
+                # Ensure interval is inclusive-exclusive
+                if(readStart == readEnd): readEnd += 1
 
-            # Write if the read is part of minimum
-            minAns = self._query(readStart, readEnd)
+                # Write if the read is part of minimum
+                minAns = self._query(readStart, readEnd)
 
-            if(minAns <= 20): #TODO use n med-MADs instead
-                outFile.write(r)
-            else:
-                self._update(readStart, readEnd, -1)
-
-        pysam.index(outFile)
+                if(minAns <= (threshHi if decay <= 0 else threshHi + math.log(threshHi - minAns)/decay)):
+                    outFile.write(r)
+                else:
+                    self._update(readStart, readEnd, -1)
