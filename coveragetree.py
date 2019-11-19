@@ -11,8 +11,11 @@ class CoverageTree:
     CUTOFF_MEDMAD = 1
     CUTOFF_SD = 2
 
-    def __init__(self, inFile, ref, total, windowPower, verboseFlag, progressbarFlag):
+    def __init__(self, inFile, ref, total, windowPower, verboseFlag, progressbarFlag, ndeviation, stddeviationflag):
         self.file = inFile
+        self.ref = ref
+        self.ndeviation = ndeviation
+        self.stddeviationflag = stddeviationflag
 
         # Number of times the chromosome length and read index resolutions are halved
         self.WINDOW_POWER = windowPower
@@ -25,7 +28,7 @@ class CoverageTree:
         # Should pass in length too, this calculation is slow
         self.CHR_LENGTH = self.file.lengths[self.file.references.index(ref)] >> self.WINDOW_POWER
         self.MAX_CHR_LENGTH = pow(2, math.ceil(math.log(self.CHR_LENGTH, 2)))
-        
+
         # Size allocation of the binary tree (padded to the next smallest power of two for balance)
         self.MAX_N = 2*pow(2, math.ceil(math.log(self.MAX_CHR_LENGTH, 2)))
 
@@ -73,6 +76,10 @@ class CoverageTree:
         if self.verboseFlag:
             print("(MAD = " + str(self.mad) + ")")
 
+        self.mean = self._getMean()
+        self.sd = self._getSD()
+
+
     def _initRefFromFile():
         return
 
@@ -115,7 +122,7 @@ class CoverageTree:
         if(cRight - cLeft == 1):
             self._recalculate(i, cLeft, cRight)
             self.t.update(1)
-            #self.leaves[cLeft] = self.minarray[i] 
+            #self.leaves[cLeft] = self.minarray[i]
             #pdb.set_trace()
             return
         self._propagate(i, cLeft, cRight)
@@ -155,7 +162,7 @@ class CoverageTree:
 
     def _getMean(self):
         leaves = self._getLeaves()
-        return numpy.average(leaves[leaves > 0])
+        return np.average(leaves[leaves > 0])
 
     def _getSD(self):
         coverages = self._getLeaves()[self._getLeaves() > 0]
@@ -181,12 +188,12 @@ class CoverageTree:
         return deviations[math.floor(len(deviations)/2)]
 
     # Writes high coverage intervals to a bed file
-    def _outputSpikes(self, filename, cutoff=CUTOFF_MEDMAD, n=4):
-        baseline = self.mean if cutoff == self.CUTOFF_SD else self.median
-        deviation = self.sd if cutoff == self.CUTOFF_SD else self.mad
-        threshHi = baseline + n * deviation
-        threshLo = baseline - n * deviation
-        
+    def _outputSpikes(self, filename):
+        baseline = self.mean if self.stddeviationflag else self.median
+        deviation = self.sd if self.stddeviationflag else self.mad
+        threshHi = baseline + self.ndeviation * deviation
+        threshLo = baseline - self.ndeviation * deviation
+
         spikeStart = 0
         spikeCurr = 0
         cumsum = 0
@@ -206,7 +213,7 @@ class CoverageTree:
                     cumsum = 0
                 elif((isHiSpike and spikeCurr == len(self._getLeaves())-1) or (wasHiSpike and not isHiSpike)):# or (wasLoSpike and not isLoSpike)):
                     #End spike
-                    outFile.write("chr22" + '\t' + str(spikeStart << self.WINDOW_POWER) + '\t' + str(spikeCurr << self.WINDOW_POWER) + '\t' + "spike_" + str(spike_id) + '\t' + str(cumsum/(spikeCurr - spikeStart)) + '\n')
+                    outFile.write(self.ref + '\t' + str(spikeStart << self.WINDOW_POWER) + '\t' + str(spikeCurr << self.WINDOW_POWER) + '\t' + "spike_" + str(spike_id) + '\t' + str(cumsum/(spikeCurr - spikeStart)) + '\n')
                     spike_id += 1
                 wasHiSpike = isHiSpike
                 wasLoSpike = isLoSpike
@@ -215,10 +222,10 @@ class CoverageTree:
 
     # Writes reads to a file without going below the median where possible
     # Decay (0, 1] increases the reads included above the otherwise strict cutoff
-    def _outputFiltered(self, outFile, cutoff=CUTOFF_MEDMAD, n=4, decay=0):
-        baseline = self.mean if cutoff == self.CUTOFF_SD else self.median
-        deviation = self.sd if cutoff == self.CUTOFF_SD else self.mad
-        threshHi = baseline + n * deviation
+    def _outputFiltered(self, outFile, decay=0):
+        baseline = self.mean if self.stddeviationflag else self.median
+        deviation = self.sd if self.stddeviationflag else self.mad
+        threshHi = baseline + self.ndeviation * deviation
 
         if self.verboseFlag:
             print("Writing filtered reads to output file")

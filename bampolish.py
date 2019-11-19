@@ -15,7 +15,7 @@ def main():
     parser.add_argument("-i", "--input",
                         help="Input sam or bam filename")
     parser.add_argument("-o", "--output",
-                        help="NOT WORKING - DO NOT USE. Output sam, bam")
+                        help="Output sam or bam filename")
     parser.add_argument("-v", "--verbose", action='store_true',
                         help="Verbose output", default=False)
     parser.add_argument("-w", "--windowPower",
@@ -26,6 +26,10 @@ def main():
                         help="Display progress bar in terminal for all operations", default=False)
     parser.add_argument("-g", "--graphOutput", action='store_true',
                         help="Produce a column graph using matplotlib on output coverage", default=False)
+    parser.add_argument("-n", "--ndeviation",
+                        help="Number of standard deviations that output should be filtered to", default=4, type=int)
+    parser.add_argument("-s", "--stddeviationflag", action='store_true',
+                        help="Use standard deviations as the method for filtering reads", default=False)
     args = parser.parse_args()
 
     # Reading in of sam/bam file
@@ -36,6 +40,7 @@ def main():
         sys.stderr.write("ERROR: Provided file is not of sam or bam type\n")
         exit()
     else:
+        # Base filename
         basename = args.input.split('.')[0]
 
         # Read in files
@@ -52,9 +57,9 @@ def main():
         for ref in inFile.references:
             total = inFile.count(reference=ref, until_eof=True)
             if total == 0: continue
-            
-            #Currently we remake tree each time, but memory should be reused in future
-            ct = CoverageTree(inFile, ref, total, args.windowPower, args.verbose, args.progressbar)
+
+            # Currently we remake tree each time, but memory should be reused in future
+            ct = CoverageTree(inFile, ref, total, args.windowPower, args.verbose, args.progressbar, args.ndeviation, args.stddeviationflag)
 
             # Write output
             ct._outputFiltered(outFile)
