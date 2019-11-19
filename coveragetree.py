@@ -23,7 +23,8 @@ class CoverageTree:
 
         # Maximum length of chromosome (~250 million bases in human)
         # Should pass in length too, this calculation is slow
-        self.MAX_CHR_LENGTH = self.file.lengths[self.file.references.index(ref)] >> self.WINDOW_POWER
+        self.CHR_LENGTH = self.file.lengths[self.file.references.index(ref)] >> self.WINDOW_POWER
+        self.MAX_CHR_LENGTH = pow(2, math.ceil(math.log(self.CHR_LENGTH, 2)))
         
         # Size allocation of the binary tree (padded to the next smallest power of two for balance)
         self.MAX_N = 2*pow(2, math.ceil(math.log(self.MAX_CHR_LENGTH, 2)))
@@ -57,6 +58,8 @@ class CoverageTree:
         if self.verboseFlag:
             print("Pushing range updates to leaves")
         self.t = tqdm(total=self.MAX_CHR_LENGTH)
+
+        self.leaves = np.empty(self.MAX_CHR_LENGTH, dtype=np.int32)
         self._updateAll()
         self.t.close()
         del self.t
@@ -112,6 +115,8 @@ class CoverageTree:
         if(cRight - cLeft == 1):
             self._recalculate(i, cLeft, cRight)
             self.t.update(1)
+            #self.leaves[cLeft] = self.minarray[i] 
+            #pdb.set_trace()
             return
         self._propagate(i, cLeft, cRight)
         mid = math.floor((cLeft + cRight) / 2)
@@ -134,7 +139,8 @@ class CoverageTree:
     # TODO: Fix changes not getting pushed to leaves (which is good but can't extract this way then)
     # Returns a modifiable numpy subarray of the leaves, which correspond to individual base position coverages
     def _getLeaves(self):
-        return self.minarray[self.MAX_N-self.MAX_CHR_LENGTH : self.MAX_N]
+        return self.minarray[self.MAX_N-self.MAX_CHR_LENGTH : self.MAX_N-self.MAX_CHR_LENGTH+self.CHR_LENGTH]
+        #return self.leaves
 
     # Reconstructs tree in linear time from modified leaves, bottom up
     def _resetFromLeaves(self, i=1, cLeft=0, cRight=None):
@@ -175,7 +181,7 @@ class CoverageTree:
         return deviations[math.floor(len(deviations)/2)]
 
     # Writes high coverage intervals to a bed file
-    def _outputSpikes(self, filename, cutoff=CUTOFF_MEDMAD, n=8):
+    def _outputSpikes(self, filename, cutoff=CUTOFF_MEDMAD, n=4):
         baseline = self.mean if cutoff == self.CUTOFF_SD else self.median
         deviation = self.sd if cutoff == self.CUTOFF_SD else self.mad
         threshHi = baseline + n * deviation
@@ -189,13 +195,9 @@ class CoverageTree:
         wasLoSpike = False
         isLoSpike = False
         spike_id = 0
-        i = 0
         leaves = self._getLeaves()
         with open(filename,'w') as outFile:
             for c in leaves:
-                print(c)
-                i += 1
-                if(i == 10000): break
                 isHiSpike = (c > threshHi)
                 isLoSpike = (c < threshLo)
                 if((isHiSpike and not wasHiSpike)):# or (isLoSpike and not wasLoSpike)):

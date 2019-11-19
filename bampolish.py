@@ -61,18 +61,6 @@ def main():
             outFile.close()
             pysam.index(outName)
 
-            # Write bedfile output WARNING: the leaves are incorrect???
-            #77
-            #77
-            #0
-            #0
-            #78
-            #77
-            #0
-            #0
-            #77
-            #78
-
             ct._outputSpikes(filename=str(basename + "_spikes.bed"))
 
             # CIGARCoverage(inFile, args.verbose, args.progressbar)
